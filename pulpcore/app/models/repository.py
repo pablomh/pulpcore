@@ -1185,12 +1185,29 @@ class RepositoryVersion(BaseModel):
 
             # Normalize representation if content has already been removed in this version and
             # is re-added: Undo removal by setting version_removed to None.
-            for removed in batch_qs(self.removed().order_by("pk").values_list("pk", flat=True)):
-                to_readd = to_add.intersection(set(removed))
+            if to_add:
+                to_readd = set()
+                to_add_list = tuple(to_add)
+                batch_size = 2000
+                for start in range(0, len(to_add_list), batch_size):
+                    batch = to_add_list[start : start + batch_size]
+                    to_readd.update(
+                        RepositoryContent.objects.filter(
+                            repository=self.repository,
+                            version_removed=self,
+                            content_id__in=batch,
+                        ).values_list("content_id", flat=True)
+                    )
+
                 if to_readd:
-                    RepositoryContent.objects.filter(
-                        content__in=to_readd, repository=self.repository, version_removed=self
-                    ).update(version_removed=None)
+                    to_readd_list = tuple(to_readd)
+                    for start in range(0, len(to_readd_list), batch_size):
+                        batch = to_readd_list[start : start + batch_size]
+                        RepositoryContent.objects.filter(
+                            repository=self.repository,
+                            version_removed=self,
+                            content_id__in=batch,
+                        ).update(version_removed=None)
                     to_add = to_add - to_readd
 
             for content_pk in to_add:

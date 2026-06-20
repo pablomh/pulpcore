@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from pulpcore.app.models import RepositoryVersionContentDetails
+from pulpcore.app.models import RepositoryContent, RepositoryVersionContentDetails
 from pulpcore.plugin.models import Artifact, Content, ContentArtifact, Repository
 from pulpcore.plugin.repo_version_utils import validate_version_paths
 
@@ -526,6 +526,42 @@ def test_mixed_add_remove_with_empty_result(db, repository, content_pks):
         version2.add_content(Content.objects.filter(pk=content_pks[0]))
 
     # No new version should be created
+    assert repository.latest_version() == version1
+
+
+def test_readd_removed_content_within_same_version(db, repository):
+    """Verify re-adding content in the same version restores the original membership row."""
+    content = Content.objects.create(pulp_type="core.content")
+
+    with repository.new_version() as version1:
+        version1.add_content(Content.objects.filter(pk=content.pk))
+
+    with repository.new_version() as version2:
+        version2.remove_content(Content.objects.filter(pk=content.pk))
+        assert RepositoryContent.objects.filter(
+            repository=repository,
+            content=content,
+            version_removed=version2,
+        ).count() == 1
+
+        version2.add_content(Content.objects.filter(pk=content.pk))
+
+        assert RepositoryContent.objects.filter(
+            repository=repository,
+            content=content,
+            version_removed=version2,
+        ).count() == 0
+        assert RepositoryContent.objects.filter(
+            repository=repository,
+            content=content,
+            version_removed=None,
+        ).count() == 1
+        assert not RepositoryContent.objects.filter(
+            repository=repository,
+            content=content,
+            version_added=version2,
+        ).exists()
+
     assert repository.latest_version() == version1
 
 
