@@ -2,11 +2,8 @@ from gettext import gettext as _
 
 from django.db.models import Prefetch
 from django_filters import Filter
-from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers
-from rest_framework.response import Response
 
-from pulpcore.app import tasks
 from pulpcore.app.models import (
     ArtifactDistribution,
     ContentGuard,
@@ -18,10 +15,8 @@ from pulpcore.app.models import (
     Repository,
 )
 from pulpcore.app.models.publication import CompositeContentGuard
-from pulpcore.app.response import OperationPostponedResponse
 from pulpcore.app.serializers import (
     ArtifactDistributionSerializer,
-    AsyncOperationResponseSerializer,
     ContentGuardSerializer,
     ContentRedirectContentGuardSerializer,
     DistributionSerializer,
@@ -48,8 +43,6 @@ from pulpcore.app.viewsets.custom_filters import (
     WithContentInFilter,
 )
 from pulpcore.filters import BaseFilterSet
-from pulpcore.openapi import InheritSerializer
-from pulpcore.tasking.tasks import dispatch
 
 
 class RepositoryThroughVersionFilter(Filter):
@@ -602,70 +595,6 @@ class DistributionViewSet(
     locks, an explicit base_path lock when needed, and the legacy domain-wide distributions lock in
     shared mode for upgrade compatibility.
     """
-
-    @extend_schema(
-        description="Trigger an asynchronous create task",
-        responses={202: AsyncOperationResponseSerializer},
-    )
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        app_label = self.queryset.model._meta.app_label
-        task = dispatch(
-            tasks.base.general_create,
-            exclusive_resources=self.async_reserved_resources(None),
-            shared_resources=self.async_shared_resources(None),
-            args=(app_label, serializer.__class__.__name__),
-            kwargs={"data": request.data},
-        )
-        return OperationPostponedResponse(task, request)
-
-    @extend_schema(
-        description="Update the entity and trigger an asynchronous task if necessary",
-        responses={200: InheritSerializer, 202: AsyncOperationResponseSerializer},
-    )
-    def update(self, request, pk, **kwargs):
-        partial = kwargs.pop("partial", False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-
-        if all(getattr(instance, key) == value for key, value in serializer.validated_data.items()):
-            return Response(serializer.data)
-
-        task = dispatch(
-            tasks.base.ageneral_update,
-            exclusive_resources=self.async_reserved_resources(instance),
-            shared_resources=self.async_shared_resources(instance),
-            args=(pk, instance._meta.app_label, serializer.__class__.__name__),
-            kwargs={"data": request.data, "partial": partial},
-            immediate=self.ALLOW_NON_BLOCKING_UPDATE,
-        )
-        return OperationPostponedResponse(task, request)
-
-    @extend_schema(
-        description="Update the entity partially and trigger an asynchronous task if necessary",
-        responses={200: InheritSerializer, 202: AsyncOperationResponseSerializer},
-    )
-    def partial_update(self, request, *args, **kwargs):
-        kwargs["partial"] = True
-        return self.update(request, *args, **kwargs)
-
-    @extend_schema(
-        description="Trigger an asynchronous delete task",
-        responses={202: AsyncOperationResponseSerializer},
-    )
-    def destroy(self, request, pk, **kwargs):
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        task = dispatch(
-            tasks.base.ageneral_delete,
-            exclusive_resources=self.async_reserved_resources(instance),
-            shared_resources=self.async_shared_resources(instance),
-            args=(pk, instance._meta.app_label, serializer.__class__.__name__),
-            immediate=self.ALLOW_NON_BLOCKING_DELETE,
-        )
-        return OperationPostponedResponse(task, request)
 
 
 class ArtifactDistributionViewSet(ReadOnlyDistributionViewSet):
