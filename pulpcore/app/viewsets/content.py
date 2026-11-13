@@ -20,6 +20,7 @@ from pulpcore.filters import BaseFilterSet
 
 from .custom_filters import (
     ArtifactRepositoryVersionFilter,
+    ContentAddedBetweenRepositoryVersionFilter,
     ContentAddedRepositoryVersionFilter,
     ContentRemovedRepositoryVersionFilter,
     ContentRepositoryVersionFilter,
@@ -125,6 +126,9 @@ class ContentFilter(BaseFilterSet):
             Return Content which was added in this repository version.
         repository_version_removed:
             Return Content which was removed from this repository version.
+        added_between:
+            Given two Repository Version HREFs/PRNs as 'base,target', return the net set of
+            Content added going from the base version to the target version.
         orphaned_for:
             Return Content which has been orphaned for a given number of minutes;
             -1 uses ORPHAN_PROTECTION_TIME value.
@@ -135,6 +139,7 @@ class ContentFilter(BaseFilterSet):
     repository_version = ContentRepositoryVersionFilter()
     repository_version_added = ContentAddedRepositoryVersionFilter()
     repository_version_removed = ContentRemovedRepositoryVersionFilter()
+    added_between = ContentAddedBetweenRepositoryVersionFilter()
     orphaned_for = OrphanedFilter(
         help_text="Minutes Content has been orphaned for. -1 uses ORPHAN_PROTECTION_TIME."
     )

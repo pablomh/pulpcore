@@ -8,8 +8,8 @@ from gettext import gettext as _
 from itertools import chain
 
 from django.conf import settings
-from django.db.models import ObjectDoesNotExist
-from django_filters import BaseInFilter, CharFilter, Filter
+from django.db.models import F, Func, ObjectDoesNotExist
+from django_filters import BaseInFilter, BaseRangeFilter, CharFilter, Filter
 from rest_framework import serializers
 from rest_framework.serializers import ValidationError as DRFValidationError
 
@@ -256,6 +256,45 @@ class ContentRemovedRepositoryVersionFilter(RepoVersionHrefPrnFilter):
 
         repo_version = self.get_repository_version(value)
         return qs.filter(pk__in=repo_version.removed())
+
+
+class ContentAddedBetweenRepositoryVersionFilter(BaseRangeFilter, RepoVersionHrefPrnFilter):
+    """
+    Filter content to the net set added between two arbitrary repository versions.
+
+    Accepts a ``base,target`` pair of RepositoryVersion HREF/PRNs and returns the content
+    present in ``target`` but not in ``base``.
+
+    The diff runs over ``content_ids`` inside the database: ``RepositoryVersion.added()``
+    materialises both UUID arrays in Python and binds one query parameter per unit, which
+    exceeds PostgreSQL's parameter limit for large repositories.
+    """
+
+    def filter(self, qs, value):
+        """
+        Args:
+            qs (django.db.models.query.QuerySet): The Content Queryset
+            value (list): The ``[base, target]`` RepositoryVersion href/prn pair to diff between
+
+        Returns:
+            Queryset of the content added going from the base version to the target version
+        """
+        if not value:
+            return qs
+
+        base_version = self.get_repository_version(value[0])
+        target_version = self.get_repository_version(value[1])
+        return qs.filter(pk__in=self._content_ids(target_version)).exclude(
+            pk__in=self._content_ids(base_version)
+        )
+
+    @staticmethod
+    def _content_ids(repo_version):
+        return (
+            RepositoryVersion.objects.filter(pk=repo_version.pk)
+            .annotate(cids=Func(F("content_ids"), function="unnest"))
+            .values_list("cids", flat=True)
+        )
 
 
 class CharInFilter(BaseInFilter, CharFilter):
